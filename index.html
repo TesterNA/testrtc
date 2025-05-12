@@ -60,7 +60,7 @@
           voiceActivityDetection: false
         };
 
-        const offer = await this.inputPC.createOffer(offerOptions);
+        const offer = await this.inputPeerConnection.createOffer(offerOptions);
     
         offer.sdp = this.enhanceSdpForSync(offer.sdp || '');
         await this.inputPeerConnection.setLocalDescription(offer);
