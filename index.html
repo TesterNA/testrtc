@@ -72,7 +72,7 @@
       });
     }
 
-        enhanceSdpForSync(sdp: string): string {
+        enhanceSdpForSync(sdp) {
         let enhancedSDP = sdp.replace(
           /a=rtcp-mux\r\n/g, 
           "a=rtcp-mux\r\na=rtcp-rsize\r\n"
