@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MediaSwitcher Mic Switch Demo</title>
+</head>
+<body>
+<h2>📹 Потік:</h2>
+<video id="outputVideo" autoplay muted playsinline style="width: 640px; border: 1px solid black;"></video>
+
+<h2>🎤 Вибір мікрофона:</h2>
+<select id="micSelect"></select>
+
+<br><br>
+<button id="startBtn" disabled>▶️ Start Recording</button>
+<button id="stopBtn" disabled>⏹️ Stop Recording</button>
+<a id="downloadLink" style="display:none" download="recording.webm">⬇️ Download Recording</a>
+
+<script>
+  class MediaSwitcher {
+    inputPeerConnection;
+    outputPeerConnection;
+
+    changeTrack = function (track) {
+      if (
+        !track ||
+        (track.constructor.name !== 'MediaStreamTrack' && track.constructor.name !== 'CanvasCaptureMediaStreamTrack') ||
+        !this.inputPeerConnection ||
+        !this.outputPeerConnection ||
+        this.inputPeerConnection.connectionState !== 'connected' ||
+        this.outputPeerConnection.connectionState !== 'connected'
+      ) return;
+
+      const senders = this.inputPeerConnection.getSenders().filter(sender => !!sender.track && sender.track.kind === track.kind);
+      if (!!senders.length)
+        senders[0].replaceTrack(track);
+    }
+
+    initialize = function (inputStream) {
+      return new Promise(async (resolve, reject) => {
+        this.inputPeerConnection = new RTCPeerConnection();
+        this.outputPeerConnection = new RTCPeerConnection();
+
+        this.inputPeerConnection.onicecandidate = e => {
+          if (e.candidate) this.outputPeerConnection.addIceCandidate(e.candidate).catch(reject);
+        };
+        this.outputPeerConnection.onicecandidate = e => {
+          if (e.candidate) this.inputPeerConnection.addIceCandidate(e.candidate).catch(reject);
+        };
+
+        this.outputPeerConnection.ontrack = e => resolve(e.streams[0]);
+
+        inputStream.getTracks().forEach(track => {
+          this.inputPeerConnection.addTrack(track, inputStream);
+        });
+
+        const offer = await this.inputPeerConnection.createOffer();
+        await this.inputPeerConnection.setLocalDescription(offer);
+        await this.outputPeerConnection.setRemoteDescription(offer);
+
+        const answer = await this.outputPeerConnection.createAnswer();
+        await this.outputPeerConnection.setLocalDescription(answer);
+        await this.inputPeerConnection.setRemoteDescription(answer);
+      });
+    }
+  }
+
+  const videoEl = document.getElementById('outputVideo');
+  const micSelect = document.getElementById('micSelect');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const downloadLink = document.getElementById('downloadLink');
+
+  let mediaSwitcher = new MediaSwitcher();
+  let currentStream;
+  let outputStream;
+  let recorder;
+  let recordedChunks = [];
+
+  function getUserMedia(...args) {
+    return (
+      navigator.mediaDevices.getUserMedia?.(...args) ||
+      navigator.mediaDevices.webkitGetUserMedia?.(...args) ||
+      navigator.mediaDevices.mozGetUserMedia?.(...args)
+    );
+  }
+
+  async function getInitialStream() {
+    const stream = await getUserMedia({ video: true, audio: true });
+    currentStream = stream;
+
+    outputStream = await mediaSwitcher.initialize(stream);
+    videoEl.srcObject = outputStream;
+
+    await populateMicList();
+    startBtn.disabled = false;
+  }
+
+  async function populateMicList() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    console.log(devices);
+    const mics = devices.filter(d => d.kind === 'audioinput');
+    micSelect.innerHTML = '';
+    mics.forEach(mic => {
+      console.log(mic);
+      const opt = document.createElement('option');
+      opt.value = mic.deviceId;
+      opt.text = `Microphone ${mic.label}` || `Microphone ${mic.deviceId}`;
+      micSelect.appendChild(opt);
+    });
+  }
+
+  micSelect.onchange = async () => {
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: { exact: micSelect.value } }
+    });
+    const newTrack = newStream.getAudioTracks()[0];
+    mediaSwitcher.changeTrack(newTrack);
+  };
+
+  startBtn.onclick = () => {
+    recordedChunks = [];
+    recorder = new MediaRecorder(outputStream);
+    recorder.ondataavailable = e => recordedChunks.push(e.data);
+    recorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url;
+      downloadLink.style.display = 'inline';
+    };
+    recorder.start();
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    downloadLink.style.display = 'none';
+  };
+
+  stopBtn.onclick = () => {
+    recorder.stop();
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  };
+
+  // Start on load
+  getInitialStream().catch(e => alert('Error: ' + e.message));
+</script>
+</body>
+</html>
