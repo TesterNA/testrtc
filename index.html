@@ -54,7 +54,15 @@
           this.inputPeerConnection.addTrack(track, inputStream);
         });
 
-        const offer = await this.inputPeerConnection.createOffer();
+        const offerOptions = {
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+          voiceActivityDetection: false
+        };
+
+        const offer = await this.inputPC.createOffer(offerOptions);
+    
+        offer.sdp = this.enhanceSdpForSync(offer.sdp || '');
         await this.inputPeerConnection.setLocalDescription(offer);
         await this.outputPeerConnection.setRemoteDescription(offer);
 
@@ -63,6 +71,22 @@
         await this.inputPeerConnection.setRemoteDescription(answer);
       });
     }
+
+        enhanceSdpForSync(sdp: string): string {
+        let enhancedSDP = sdp.replace(
+          /a=rtcp-mux\r\n/g, 
+          "a=rtcp-mux\r\na=rtcp-rsize\r\n"
+        );
+        
+        if (!enhancedSDP.includes('http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time')) {
+          enhancedSDP = enhancedSDP.replace(
+            /a=extmap:/g, 
+            "a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\na=extmap:"
+          );
+        }
+        
+        return enhancedSDP;
+      }
   }
 
   const videoEl = document.getElementById('outputVideo');
